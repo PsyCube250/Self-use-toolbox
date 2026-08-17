@@ -1,0 +1,42 @@
+from agent import Agent
+from tools.fallacy import FallacyDetector
+from tools.bias import BiasDetector
+from tools.counterexample import CounterexampleGenerator
+from tools.registry import ToolRegistry
+import json
+
+
+registry = ToolRegistry()
+
+registry.register(
+    FallacyDetector()
+)
+
+registry.register(
+    BiasDetector()
+)
+
+registry.register(
+    CounterexampleGenerator()
+)
+
+
+agent = Agent(registry)
+#--------------------------------------
+
+text = """
+我认识三个程序员，他们都喜欢玩游戏，所以程序员都喜欢玩游戏。
+
+"""
+
+
+result = agent.run(text)
+
+
+print(
+    json.dumps(
+        result,
+        ensure_ascii=False,
+        indent=4
+    )
+)
