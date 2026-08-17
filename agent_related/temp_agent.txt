@@ -1,0 +1,303 @@
+from llm import DeepSeekLLM
+from state import AgentState
+
+
+class Agent:
+
+    def __init__(self, registry):
+
+        self.registry = registry
+        self.llm = DeepSeekLLM()
+
+
+    def run(self, text):
+
+        # =========================
+        # 创建 Agent State
+        # =========================
+
+        state = AgentState(text)
+
+
+        # =========================
+        # 初始化对话
+        # =========================
+
+        messages = [
+
+            {
+                "role": "system",
+                "content": """
+你是一个逻辑分析 Agent。
+
+分析用户给出的陈述，判断是否存在：
+
+1. 逻辑谬误
+2. 认知偏差
+3. 可以削弱原结论的反例
+
+你可以调用提供的工具进行分析。
+
+根据工具返回的结果继续决定下一步。
+
+每个工具通常只需要调用一次。
+如果某个工具已经提供了足够的信息，不要重复调用。
+
+只有在确实需要新的信息时，
+才再次调用已经使用过的工具。
+
+当你认为分析已经足够时，不再调用工具，
+直接给出最终分析。
+"""
+            },
+
+            {
+                "role": "user",
+                "content": text
+            }
+
+        ]
+
+
+        # =========================
+        # Agent Controller
+        # =========================
+
+        max_steps = 6
+        step = 0
+
+        # 最终答案
+        final_answer = None
+
+
+        # =========================
+        # Agent Loop
+        # =========================
+
+        while step < max_steps:
+
+            step += 1
+
+            print(
+                f"\n========== STEP {step} =========="
+            )
+
+
+            # =========================
+            # 请求 DeepSeek
+            # =========================
+
+            message = self.llm.chat(
+                messages,
+                self.registry.get_schemas()
+            )
+
+
+            # =========================
+            # 情况一：
+            # DeepSeek 要调用 Tool
+            # =========================
+
+            if message.tool_calls:
+
+                # 非常重要：
+                # 保存 DeepSeek 的完整 assistant tool_calls 消息
+                messages.append(message)
+
+
+                # =========================
+                # 处理所有 Tool Call
+                # =========================
+
+                for tool_call in message.tool_calls:
+
+                    tool_name = tool_call.function.name
+
+
+                    print(
+                        f"\nLLM调用工具: {tool_name}"
+                    )
+
+
+                    # =========================
+                    # 从 Registry 获取 Tool
+                    # =========================
+
+                    tool = self.registry.get_tool(
+                        tool_name
+                    )
+
+
+                    if tool is None:
+
+                        print(
+                            f"Tool不存在: {tool_name}"
+                        )
+
+                        continue
+
+
+                    # =========================
+                    # 执行 Tool
+                    # =========================
+
+                    observation = tool.run(text)
+
+
+                    print(
+                        "Tool结果:",
+                        observation
+                    )
+
+
+                    # =========================
+                    # 保存 Agent State
+                    # =========================
+
+                    state.add_step(
+
+                        thought=(
+                            f"DeepSeek决定调用 "
+                            f"{tool_name}"
+                        ),
+
+                        action=tool_name,
+
+                        observation=observation
+
+                    )
+
+
+                    state.result.append({
+
+                        "tool": tool_name,
+
+                        "result": observation
+
+                    })
+
+
+                    # =========================
+                    # 把 Tool Result
+                    # 返回给 DeepSeek
+                    # =========================
+
+                    messages.append({
+
+                        "role": "tool",
+
+                        "tool_call_id": tool_call.id,
+
+                        "content": str(observation)
+
+                    })
+
+
+                # =========================
+                # Tool 执行完成
+                #
+                # 回到 while
+                # 让 DeepSeek 决定下一步
+                # =========================
+
+                continue
+
+
+            # =========================
+            # 情况二：
+            # DeepSeek 不再调用 Tool
+            #
+            # 说明它认为已经可以回答
+            # =========================
+
+            else:
+
+                final_answer = message.content
+
+
+                print(
+                    "\n========== FINAL ANSWER =========="
+                )
+
+                print(
+                    final_answer
+                )
+
+
+                break
+
+
+        # ==================================================
+        # 如果 while 结束，但 DeepSeek 一直没有给最终答案
+        # ==================================================
+
+        if final_answer is None:
+
+            print(
+                "\n========== MAX STEPS REACHED =========="
+            )
+
+
+            # =========================
+            # 强制 DeepSeek 停止调用 Tool
+            # =========================
+
+            messages.append({
+
+                "role": "user",
+
+                "content": """
+工具调用轮数已经达到上限。
+
+现在不要再调用任何工具。
+
+请根据目前对话中已经获得的所有工具结果，
+直接给出最终的逻辑分析。
+
+请明确说明：
+
+1. 原陈述的核心推理
+2. 是否存在逻辑谬误
+3. 是否存在认知偏差
+4. 是否存在能够削弱结论的反例
+5. 最终结论
+
+不要调用工具。
+"""
+            })
+
+
+            # =========================
+            # 关键：
+            # 这里不给 DeepSeek Tools
+            # =========================
+
+            message = self.llm.chat(
+                messages,
+                []
+            )
+
+
+            final_answer = message.content
+
+
+            print(
+                "\n========== FINAL ANSWER =========="
+            )
+
+            print(
+                final_answer
+            )
+
+
+        # =========================
+        # 返回 Agent 最终结果
+        # =========================
+
+        return {
+
+            "history": state.history,
+
+            "final": final_answer
+
+        }
