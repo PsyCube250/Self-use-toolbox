@@ -1,0 +1,17 @@
+TODO 1
+支持“无逻辑问题”的陈述
+
+TODO 2
+支持统计/调查/数据驱动型论证
+
+TODO 3
+Counterexample 不应该对所有类型的命题强行生成反例
+
+TODO 4
+增加 Claim Classification
+
+TODO 5
+增加 Evidence / Statistical Analysis Tool
+
+TODO 6
+让 Agent 根据 Claim Type 决定使用哪些 Tool
