@@ -1,1 +1,7 @@
 
+"C:/Users/ydzhao13/Desktop/File/9_01/starfield-main"; 
+git init; git add .;
+git commit -m "Initial commit"; 
+git branch -M main; 
+git remote add origin https://github.com/PsyCube250/starfield.git; 
+git push -u origin main
