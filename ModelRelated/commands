@@ -1,0 +1,118 @@
+迭代：
+  1.确定替换新的训练集，然后确定指向它
+    import shutil
+    shutil.copy("/mnt/user-data/uploads/unified_sharegpt_v{N}.json", "/root/LLaMA-Factory/data/unified_sharegpt.json")
+    print("数据集已更新")
+
+    !grep -A 8 my_persona_clone /root/LLaMA-Factory/data/dataset_info.json
+
+————————————————————————————————————————————————————————————————————————————————————————————————————————
+  2.写新的训练配置
+    N = 1  # 改成当前迭代轮次
+
+    config = f"""### model
+    model_name_or_path: /root/models/Qwen3-1.7B-Base
+    trust_remote_code: true
+
+    ### method
+    stage: sft
+    do_train: true
+    finetuning_type: lora
+    lora_rank: 16
+    lora_alpha: 32
+    lora_target: all
+
+    ### dataset
+    dataset: my_persona_clone
+    dataset_dir: /root/LLaMA-Factory/data
+    template: qwen3_nothink
+    cutoff_len: 2048
+    max_samples: 20000
+    overwrite_cache: true
+    preprocessing_num_workers: 8
+
+    ### output
+    output_dir: /root/saves/qwen3-1.7b-persona-lora-v{{N}}
+    logging_steps: 10
+    save_steps: 200
+    plot_loss: true
+    overwrite_output_dir: true
+
+    ### train
+    per_device_train_batch_size: 4
+    gradient_accumulation_steps: 4
+    learning_rate: 1.0e-4
+    num_train_epochs: 2.0
+    lr_scheduler_type: cosine
+    warmup_ratio: 0.1
+    bf16: true
+
+    ### eval
+    val_size: 0.05
+    per_device_eval_batch_size: 4
+    eval_strategy: steps
+    eval_steps: 200
+    """.format(N=N)
+
+    with open("/root/qwen3_persona_lora.yaml", "w") as f:
+        f.write(config)
+
+    print(f"配置已写入，本轮output_dir: /root/saves/qwen3-1.7b-persona-lora-v{N}")
+
+——————————————————————————————————————————————————————————————————————————————
+    3.跑训练
+      !/root/miniconda3/envs/llama_factory_py311/bin/llamafactory-cli train /root/qwen3_persona_lora.yaml
+    4.看loss图像
+      from PIL import Image
+      output_dir = f"/root/saves/qwen3-1.7b-persona-lora-v{N}"
+
+      display(Image.open(f"{output_dir}/training_loss.png"))
+      display(Image.open(f"{output_dir}/training_eval_loss.png"))
+———————————————————————————————————————————————————————————————————————————————
+    5.发问
+      from transformers import AutoModelForCausalLM, AutoTokenizer
+      from peft import PeftModel
+      import torch
+      
+      base_model_path = "/root/models/Qwen3-1.7B-Base"
+      lora_path = f"/root/saves/qwen3-1.7b-persona-lora-v{N}"
+      
+      tokenizer = AutoTokenizer.from_pretrained(base_model_path, trust_remote_code=True)
+      model = AutoModelForCausalLM.from_pretrained(base_model_path, dtype=torch.bfloat16, device_map="cuda", trust_remote_code=True)
+      model = PeftModel.from_pretrained(model, lora_path)
+      model.eval()
+      
+      def chat(prompt, history=None):
+          if history is None:
+              history = []
+          messages = history + [{"role": "user", "content": prompt}]
+          text = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+          inputs = tokenizer(text, return_tensors="pt").to("cuda")
+          outputs = model.generate(
+              **inputs,
+              max_new_tokens=60,
+              temperature=0.6,
+              top_p=0.85,
+              repetition_penalty=1.3,
+              no_repeat_ngram_size=3,
+              do_sample=True,
+          )
+          response = tokenizer.decode(outputs[0][inputs.input_ids.shape[1]:], skip_special_tokens=True)
+          print("回复:", response)
+          return response
+      
+      # 每轮建议固定用同一组测试问题，方便跨版本横向对比效果
+      test_prompts = ["在干嘛呢", "这个周末有空吗", "作业写完了吗", "晚上一起吃饭吗"]
+      for p in test_prompts:
+          print(f"\n问: {p}")
+          chat(p)
+
+_______________________________________________________________
+      6.释放空间
+        import shutil
+        # 删除某一轮的checkpoint，只保留最终的adapter权重和loss图
+        shutil.rmtree(f"/root/saves/qwen3-1.7b-persona-lora-v{N}/checkpoint-200", ignore_errors=True)
+        shutil.rmtree(f"/root/saves/qwen3-1.7b-persona-lora-v{N}/checkpoint-400", ignore_errors=True)
+        
+
+
