@@ -113,6 +113,19 @@ _______________________________________________________________
         # 删除某一轮的checkpoint，只保留最终的adapter权重和loss图
         shutil.rmtree(f"/root/saves/qwen3-1.7b-persona-lora-v{N}/checkpoint-200", ignore_errors=True)
         shutil.rmtree(f"/root/saves/qwen3-1.7b-persona-lora-v{N}/checkpoint-400", ignore_errors=True)
+
+        !du -sh /root/miniconda3 /root/LLaMA-Factory /root/models /root/saves ~/.cache 2>/dev/null #查看目前内存结构
+
+
+        !du -sh /root/miniconda3/pkgs 2>/dev/null
+        !du -sh ~/.cache/* 2>/dev/null | sort -rh       #进一步查看包下最大文件
+
+        !conda clean --all -y #conda缓存包清理
+
+        !pip cache purge #之前的缓存包Pytorch等
+
+        !du -sh /root/miniconda3 ~/.cache
+        !df -h /    #重新查看占用
         
 
 
