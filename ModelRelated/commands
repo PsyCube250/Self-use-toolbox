@@ -4,7 +4,7 @@
     shutil.copy("/mnt/user-data/uploads/unified_sharegpt_v{N}.json", "/root/LLaMA-Factory/data/unified_sharegpt.json")
     print("数据集已更新")
 
-    !grep -A 8 my_persona_clone /root/LLaMA-Factory/data/dataset_info.json
+    !grep -A 8 my_persona_clone /root/LLaMA-Factory/data/dataset_info.json     #确定注册信息是否存在
 
 ————————————————————————————————————————————————————————————————————————————————————————————————————————
   2.写新的训练配置
