@@ -6,6 +6,12 @@
 
     !grep -A 8 my_persona_clone /root/LLaMA-Factory/data/dataset_info.json     #确定注册信息是否存在
 
+    head -n 2 /root/LLaMA-Factory/data/personality_cleaned.jsonl  #查看当前数据集内容
+
+    llamafactory-cli train \
+      --dataset alpaca_en_demo \
+     # 手动添加训练集
+
 ————————————————————————————————————————————————————————————————————————————————————————————————————————
   2.写新的训练配置
     N = 1  # 改成当前迭代轮次
