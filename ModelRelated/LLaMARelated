@@ -36,3 +36,7 @@ du -sh ~/.cache/pip 2>/dev/null
 
 rm -rf ~/.cache/pip
 
+
+#webui ssh 连接建立
+
+ssh -L ****:127.0.0.1:**** -p ***** root@ssh-cn-huabei1.ebcloud.com
