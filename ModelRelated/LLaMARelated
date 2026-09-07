@@ -16,3 +16,23 @@ pip install -e ".[torch,metrics]"
 conda activate llamafactory
 
 llamafactory-cli webui
+
+
+#清理缓存
+du -sh ~/.cache/pip 2>/dev/null
+
+#国内镜像
+
+-i https://pypi.tuna.tsinghua.edu.cn/simple
+-i https://mirrors.aliyun.com/pypi/simple/
+-i https://pypi.mirrors.ustc.edu.cn/simple/
+-i https://pypi.douban.com/simple/
+-i https://repo.huaweicloud.com/repository/pypi/simple/
+-i https://mirrors.cloud.tencent.com/pypi/simple/
+
+#内存清理（缓存）
+
+du -sh ~/.cache/pip 2>/dev/null
+
+rm -rf ~/.cache/pip
+
