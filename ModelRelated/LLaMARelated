@@ -1,0 +1,18 @@
+#  再LLaMA Factory下安装dependency
+
+pip install -e ".[torch,metrics]"
+
+  #这一步会把 `llamafactory-cli` 这个命令注册到环境里
+
+  #如果python版本不匹配：
+
+      conda create -n llamafactory python=3.11 -y
+      conda activate llamafactory
+      cd ~/LLaMA-Factory
+      pip install -e ".[torch,metrics]"
+
+#  ssh 映射
+
+conda activate llamafactory
+
+llamafactory-cli webui
