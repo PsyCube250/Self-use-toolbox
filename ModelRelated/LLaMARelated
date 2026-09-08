@@ -40,6 +40,8 @@ du -sh ~/.cache/pip 2>/dev/null
 rm -rf ~/.cache/pip
 
 #手动加载模型
+
+
 #step1 激活环境
 
 cd /root/LLaMA-Factory
@@ -53,6 +55,10 @@ llamafactory-cli chat \
   --template qwen3 \
   --finetuning_type lora
 
+
+llamafactory-cli chat \
+  --model_name_or_path /root/blockdata/models/qwen3-persona-merged-4bit \
+  --template qwen3_nothink
 
 #webui ssh 连接建立
 
