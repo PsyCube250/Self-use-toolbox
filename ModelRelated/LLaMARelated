@@ -39,6 +39,20 @@ du -sh ~/.cache/pip 2>/dev/null
 
 rm -rf ~/.cache/pip
 
+#手动加载模型
+#step1 激活环境
+
+cd /root/LLaMA-Factory
+conda activate /root/blockdata/conda_envs/llama
+
+
+#step2
+llamafactory-cli chat \
+  --model_name_or_path /root/blockdata/Qwen3-30B-A3B-Instruct-2507 \
+  --adapter_name_or_path /root/LLaMA-Factory/saves/Qwen3-30B-A3B-Instruct-2507/lora/train_2026-09-07-22-30-29 \
+  --template qwen3 \
+  --finetuning_type lora
+
 
 #webui ssh 连接建立
 
