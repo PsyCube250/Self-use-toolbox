@@ -25,3 +25,185 @@ print("CUDA 可用:", torch.cuda.is_available())
 
 if torch.cuda.is_available():
     print("GPU:", torch.cuda.get_device_name(0))
+---------------------期望输出--------------------
+Python: /root/miniconda3/envs/persona-rag/bin/python
+PyTorch: 2.14.0+cu130
+Transformers: 5.16.1
+Sentence Transformers: 6.0.1
+FAISS: 1.15.0
+CUDA 可用: True
+GPU: NVIDIA A800-SXM4-80GB
+-------------------------------------------------
+
+import os                                                #文件路径设置
+
+os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
+os.environ["HF_HOME"] = "/root/blockdata/huggingface"
+os.environ["HF_HUB_CACHE"] = "/root/blockdata/huggingface/hub"
+os.environ["HF_XET_CACHE"] = "/root/blockdata/huggingface/xet"
+os.environ["TORCH_HOME"] = "/root/blockdata/torch-cache"
+
+os.makedirs("/root/blockdata/huggingface", exist_ok=True)
+os.makedirs("/root/blockdata/huggingface/hub", exist_ok=True)
+os.makedirs("/root/blockdata/huggingface/xet", exist_ok=True)
+os.makedirs("/root/blockdata/torch-cache", exist_ok=True)
+
+print("HF_ENDPOINT =", os.environ["HF_ENDPOINT"])
+
+
+————————————————————————————如果sharingpage不行
+
+%pip install modelscope -i https://pypi.mirrors.ustc.edu.cn/simple  #清华源
+
+————————————————————————————————————
+
+pip install modelscope -i https://pypi.mirrors.ustc.edu.cn/simple
+
+
+from modelscope import snapshot_download   #配置模型
+
+model_dir = snapshot_download(
+    model_id="BAAI/bge-small-zh-v1.5",
+    cache_dir="/root/blockdata/modelscope"
+)
+
+print("模型下载完成")
+print("本地模型目录：", model_dir)
+
+
+
+
+from sentence_transformers import SentenceTransformer     #测试
+
+model_dir = (
+    "/root/blockdata/modelscope/models/"
+    "BAAI--bge-small-zh-v1.5/snapshots/master"
+)
+
+embedding_model = SentenceTransformer(
+    model_dir,
+    device="cuda",
+    local_files_only=True
+)
+
+print("Embedding 模型加载完成")
+print("向量维度：", embedding_model.get_sentence_embedding_dimension())
+print("运行设备：", embedding_model.device)
+
+
+sentences = [                                        #测试2
+    "为什么你喜欢组建乐队？",
+    "组建乐队让我享受群体之间互相牵挂和依托的感觉。",
+    "我正在人工智能领域做算法实习。"
+]
+
+vectors = embedding_model.encode(
+    sentences,
+    batch_size=32,
+    normalize_embeddings=True,
+    convert_to_numpy=True,
+    show_progress_bar=False
+)
+
+similarities = vectors @ vectors.T
+
+print("向量形状：", vectors.shape)
+print("\n相似度矩阵：")
+print(similarities)
+——————————————————————————————————————期望输出————————————————————————————
+向量形状： (3, 512)
+
+相似度矩阵：
+[[1.0000001  0.7285875  0.31825286]
+ [0.7285875  1.0000001  0.394619  ]
+ [0.31825286 0.394619   0.99999994]]
+
+————————————————————————————————————————正式部署——————————————————————————————
+
+
+import json
+import faiss
+import numpy as np
+
+INTERVIEW_PATH = "/root/blockdata/interview.json"
+INDEX_PATH = "/root/blockdata/persona_memory.faiss"
+MEMORY_PATH = "/root/blockdata/persona_memory.json"
+
+with open(INTERVIEW_PATH, "r", encoding="utf-8") as f:
+    memories = json.load(f)
+
+documents = [
+    (
+        f"维度：{item.get('dimension', '')}\n"
+        f"问题：{item.get('question', '')}\n"
+        f"回答：{item.get('answer', '')}"
+    )
+    for item in memories
+]
+
+document_embeddings = embedding_model.encode(
+    documents,
+    batch_size=128,
+    normalize_embeddings=True,
+    convert_to_numpy=True,
+    show_progress_bar=True
+).astype("float32")
+
+index = faiss.IndexFlatIP(document_embeddings.shape[1])
+index.add(document_embeddings)
+
+faiss.write_index(index, INDEX_PATH)
+
+with open(MEMORY_PATH, "w", encoding="utf-8") as f:
+    json.dump(memories, f, ensure_ascii=False, indent=2)
+
+print("知识条目数：", index.ntotal)
+print("向量维度：", document_embeddings.shape[1])
+print("索引已保存：", INDEX_PATH)
+
+————————————————————————————————————embedding建立分析库———————————————————————————
+
+def retrieve(query, top_k=5):
+    query_for_embedding = (
+        "为这个句子生成表示以用于检索相关文章："
+        + query
+    )
+
+    query_embedding = embedding_model.encode(
+        [query_for_embedding],
+        normalize_embeddings=True,
+        convert_to_numpy=True,
+        show_progress_bar=False
+    ).astype("float32")
+
+    scores, indices = index.search(
+        query_embedding,
+        min(top_k, index.ntotal)
+    )
+
+    results = []
+
+    for score, idx in zip(scores[0], indices[0]):
+        if idx < 0:
+            continue
+
+        results.append({
+            "score": float(score),
+            **memories[idx]
+        })
+
+    return results
+——————————————————————————————————————————————————
+
+results = retrieve(
+    "如果人工智能和音乐发生冲突，最终会选什么？",
+    top_k=5
+)
+
+for rank, result in enumerate(results, start=1):
+    print("=" * 70)
+    print("排名：", rank)
+    print("相似度：", round(result["score"], 4))
+    print("维度：", result.get("dimension", ""))
+    print("问题：", result.get("question", ""))
+    print("回答：", result.get("answer", ""))
