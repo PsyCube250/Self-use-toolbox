@@ -162,7 +162,7 @@ print("向量维度：", document_embeddings.shape[1])
 print("索引已保存：", INDEX_PATH)
 
 ————————————————————————————————————embedding建立分析库———————————————————————————
-
+QUERY_INSTRUCTION = "为这个句子生成表示以用于检索相关文章："
 def retrieve(query, top_k=5):
     query_for_embedding = (
         "为这个句子生成表示以用于检索相关文章："
@@ -345,3 +345,547 @@ for rank, result in enumerate(results, start=1):
                             print("RAG 加载成功")
                             
                             //#然后加上之前的retrieve()、decide_memory_usage() 和 persona_chat() 函数
+
+                ——————————————分支：RAG添加新的信息——————————————————————————
+                
+                
+                
+                #step1更改json（datablock/interview.json)
+                
+                import json
+                import faiss
+                import numpy as np
+                
+                INTERVIEW_PATH = "/root/blockdata/interview.json"
+                INDEX_PATH = "/root/blockdata/persona_memory.faiss"
+                MEMORY_PATH = "/root/blockdata/persona_memory.json"
+                
+                with open(INTERVIEW_PATH, "r", encoding="utf-8") as f:
+                    memories = json.load(f)
+                
+                documents = [
+                    (
+                        f"维度：{item.get('dimension', '')}\n"
+                        f"问题：{item.get('question', '')}\n"
+                        f"回答：{item.get('answer', '')}"
+                    )
+                    for item in memories
+                ]
+                
+                document_embeddings = embedding_model.encode(
+                    documents,
+                    batch_size=128,
+                    normalize_embeddings=True,
+                    convert_to_numpy=True,
+                    show_progress_bar=True
+                ).astype("float32")
+                
+                index = faiss.IndexFlatIP(document_embeddings.shape[1])
+                index.add(document_embeddings)
+                
+                faiss.write_index(index, INDEX_PATH)
+                
+                with open(MEMORY_PATH, "w", encoding="utf-8") as f:
+                    json.dump(memories, f, ensure_ascii=False, indent=2)
+                
+                print("知识条目数：", index.ntotal)
+                print("向量维度：", document_embeddings.shape[1])
+                print("索引已保存：", INDEX_PATH)
+
+
+_____________书接上回—————decide_memory_usage() 和 persona_chat()———更新：目前加入思考：是否回忆（调用RAG数据库）——
+
+
+
+
+*****************************************之前版本：没有思考是否调用rag检索
+
+def truncate_text(text, max_chars=600):
+    text = str(text).strip()
+
+    if len(text) <= max_chars:
+        return text
+
+    return text[:max_chars].rstrip() + "……"
+
+def build_memory_context(
+    query,
+    retrieve_k=8,
+    max_memories=3,
+    min_score=0.45
+):
+    results = retrieve(
+        query,
+        top_k=retrieve_k,
+        min_score=min_score
+    )
+
+    selected = results[:max_memories]
+    blocks = []
+
+    for rank, item in enumerate(selected, start=1):
+        block = f"""[真实记忆 {rank}]
+维度：{item.get("dimension", "")}
+问题：{truncate_text(item.get("question", ""), 250)}
+回答：{truncate_text(item.get("answer", ""), 600)}"""
+
+        blocks.append(block)
+
+    context = "\n\n".join(blocks)
+
+    return context, selected
+
+PERSONA_SYSTEM_PROMPT = """
+你正在以你自己的身份和朋友聊天。
+
+回答要求：
+1. 保持训练中形成的自然、口语化、简洁的聊天风格。
+2. 真实记忆只用于帮助回忆，不需要照抄原文。
+3. 不要编造真实记忆中不存在的人物、关系或人生经历。
+4. 不要提到RAG、检索、向量库、知识库或访谈资料。
+5. 如果没有足够的真实记忆，可以自然地说不确定、记不清或没有想过。
+6. 不要因为参考内容很长，就突然写成长文章。
+""".strip()
+
+def persona_chat(
+    user_message,
+    history=None,
+    temperature=0.7,
+    max_tokens=256
+):
+    if history is None:
+        history = []
+
+    memory_context, retrieved = build_memory_context(
+        query=user_message,
+        retrieve_k=8,
+        max_memories=3,
+        min_score=0.45
+    )
+
+    system_content = PERSONA_SYSTEM_PROMPT
+
+    if memory_context:
+        system_content += (
+            "\n\n以下是与当前问题相关的真实记忆：\n\n"
+            + memory_context
+        )
+    else:
+        system_content += (
+            "\n\n当前问题没有检索到足够相关的真实记忆。"
+        )
+
+    messages = [
+        {
+            "role": "system",
+            "content": system_content
+        },
+        *history,
+        {
+            "role": "user",
+            "content": user_message
+        }
+    ]
+
+    answer = call_persona_model(
+        messages=messages,
+        temperature=temperature,
+        top_p=0.8,
+        max_tokens=max_tokens
+    )
+
+    return {
+        "answer": answer,
+        "retrieved": retrieved,
+        "messages": messages
+    }
+
+
+#输出
+
+result = persona_chat(
+    "如果人工智能和音乐真的发生冲突，你最终会选择什么？"
+)
+
+print("模型回答：")
+print(result["answer"])
+
+print("\n本次使用的记忆：")
+
+for rank, item in enumerate(result["retrieved"], start=1):
+    print("=" * 70)
+    print("排名：", rank)
+    print("相似度：", round(item["score"], 4))
+    print("维度：", item.get("dimension", ""))
+    print("问题：", item.get("question", ""))
+    print(
+        "回答：",
+        truncate_text(item.get("answer", ""), 300)
+    )
+
+###############输出期望
+
+模型回答：
+那得看具体是什么冲突了
+如果是说让我放弃一个去追求另一个的话 我觉得是音乐
+
+本次使用的记忆：
+======================================================================
+排名： 1
+相似度： 0.6455
+维度： 未来打算
+问题： 如果AI和音乐必须二选一，你会怎么选？哪个更接近你“永远年轻”的理想？
+回答： 那就音乐吧，至少规则我定，更加自由。
+======================================================================
+排名： 2
+相似度： 0.55
+维度： 内心冲突
+问题： 当个人喜好和团队需求冲突时，你如何平衡？
+回答： 会问自己：为什么要献出时间来迁就别人？为什么老弹别人的歌？排过的印象深刻的歌居然没有一个是自己的。但最终意识到不能任何事情都随心所欲，否则会越来越远、越来越无趣、越来越孤独。选择交给时间赋予意义。
+======================================================================
+排名： 3
+相似度： 0.5485
+维度： 人生选择
+问题： 在众多未来之间，应该选择什么样的道路？
+回答： 选择那个崎岖复杂但有趣的道路。AI 时代更需要注重过程而非结果，跨越大陆学习的价值不在于快速完成，而在于遇到的困难、帮助过的人、通宵后的喜悦。
+
+
+******************************************
+
+#更新后
+#安全json解析
+
+import json
+import re
+
+
+def parse_json_safely(text):
+    text = str(text).strip()
+
+    # 去除 ```json ... ``` 包裹
+    text = re.sub(
+        r"^```(?:json)?\s*|\s*```$",
+        "",
+        text,
+        flags=re.IGNORECASE
+    ).strip()
+
+    try:
+        return json.loads(text)
+
+    except json.JSONDecodeError:
+        # 尝试从额外文字中提取 JSON 对象
+        match = re.search(
+            r"\{.*\}",
+            text,
+            flags=re.DOTALL
+        )
+
+        if match:
+            return json.loads(match.group(0))
+
+        raise
+
+
+#truncate_text()
+def truncate_text(text, max_chars=600):
+    text = str(text).strip()
+
+    if len(text) <= max_chars:
+        return text
+
+    return text[:max_chars].rstrip() + "……"
+
+#truncate_text()
+def truncate_text(text, max_chars=600):
+    text = str(text).strip()
+
+    if len(text) <= max_chars:
+        return text
+
+    return text[:max_chars].rstrip() + "……"
+
+
+#prompt
+
+MEMORY_ROUTER_PROMPT = """
+判断回答当前用户消息是否需要查找个人长期记忆。
+
+需要查找记忆：
+- 询问本人的真实经历、过去事件或人生故事
+- 询问具体人物、关系、学校、乐队、项目或作品
+- 询问长期偏好、价值观、人生选择或未来计划
+- 问题需要个人事实才能可靠回答
+- 当前消息含有“那个人”“当时”“那件事”等指代，需要历史信息
+
+不需要查找记忆：
+- 问候、寒暄、感叹、玩笑
+- 普通闲聊和即时安排
+- 用户只是在表达当前状态
+- 根据当前对话就能自然回答
+- 不涉及个人历史事实的问题
+
+只能返回一个JSON对象：
+
+{"need_memory":true,"search_query":"独立完整的检索问题"}
+
+或者：
+
+{"need_memory":false,"search_query":""}
+
+如果需要记忆，请把省略或含有代词的问题改写成独立完整的问题。
+禁止输出Markdown、思考过程或额外说明。
+""".strip()
+
+
+#decide_memory_usage()
+def decide_memory_usage(
+    user_message,
+    history=None
+):
+    if history is None:
+        history = []
+
+    # 只提供最近两轮对话，避免路由输入过长
+    recent_history = history[-4:]
+
+    messages = [
+        {
+            "role": "system",
+            "content": MEMORY_ROUTER_PROMPT
+        },
+        *recent_history,
+        {
+            "role": "user",
+            "content": user_message
+        }
+    ]
+
+    raw_output = call_persona_model(
+        messages=messages,
+        temperature=0.0,
+        top_p=1.0,
+        max_tokens=100
+    )
+
+    try:
+        decision = parse_json_safely(raw_output)
+
+        if not isinstance(decision, dict):
+            raise ValueError(
+                "路由模型返回的不是JSON对象"
+            )
+
+        need_memory = decision.get(
+            "need_memory",
+            False
+        )
+
+        # 兼容 "true" 和 "false" 字符串
+        if isinstance(need_memory, str):
+            need_memory = (
+                need_memory.strip().lower() == "true"
+            )
+
+        search_query = str(
+            decision.get("search_query", "")
+        ).strip()
+
+        if not need_memory:
+            search_query = ""
+
+        return {
+            "need_memory": bool(need_memory),
+            "search_query": search_query,
+            "raw_output": raw_output,
+            "parse_success": True
+        }
+
+    except Exception as error:
+        # 路由解析失败时默认不注入记忆，避免污染回答
+        return {
+            "need_memory": False,
+            "search_query": "",
+            "raw_output": raw_output,
+            "parse_success": False,
+            "error": str(error)
+        }
+
+
+#build_memory_context()
+def build_memory_context(
+    query,
+    retrieve_k=6,
+    max_memories=2
+):
+    results = retrieve(
+        query,
+        top_k=retrieve_k,
+        min_score=None
+    )
+
+    selected = results[:max_memories]
+    blocks = []
+
+    for rank, item in enumerate(
+        selected,
+        start=1
+    ):
+        block = f"""[真实记忆 {rank}]
+维度：{item.get("dimension", "")}
+问题：{truncate_text(item.get("question", ""), 250)}
+回答：{truncate_text(item.get("answer", ""), 600)}"""
+
+        blocks.append(block)
+
+    context = "\n\n".join(blocks)
+
+    return context, selected
+
+#newpersona_chat
+def persona_chat(
+    user_message,
+    history=None,
+    temperature=0.7,
+    max_tokens=256,
+    debug=True
+):
+    if history is None:
+        history = []
+
+    # 第一阶段：让模型决定是否需要长期记忆
+    routing = decide_memory_usage(
+        user_message=user_message,
+        history=history
+    )
+
+    memory_context = ""
+    retrieved = []
+
+    # 第二阶段：只有模型判断需要时才检索
+    if routing["need_memory"]:
+        search_query = (
+            routing["search_query"]
+            or user_message
+        )
+
+        memory_context, retrieved = (
+            build_memory_context(
+                query=search_query,
+                retrieve_k=6,
+                max_memories=2
+            )
+        )
+
+    system_content = PERSONA_SYSTEM_PROMPT
+
+    # 只有真正检索到记忆时才加入
+    if memory_context:
+        system_content += (
+            "\n\n以下是与当前问题相关的真实记忆：\n\n"
+            + memory_context
+        )
+
+    messages = [
+        {
+            "role": "system",
+            "content": system_content
+        },
+        *history,
+        {
+            "role": "user",
+            "content": user_message
+        }
+    ]
+
+    # 第三阶段：最终人格回答
+    answer = call_persona_model(
+        messages=messages,
+        temperature=temperature,
+        top_p=0.8,
+        max_tokens=max_tokens
+    )
+
+    result = {
+        "answer": answer,
+        "routing": routing,
+        "rag_requested": routing["need_memory"],
+        "rag_used": bool(memory_context),
+        "retrieved": retrieved,
+        "messages": messages
+    }
+
+    if debug:
+        print("模型回答：")
+        print(answer)
+
+        print("\n路由判断：")
+        print(
+            "需要记忆：",
+            routing["need_memory"]
+        )
+        print(
+            "检索问题：",
+            routing["search_query"]
+        )
+        print(
+            "路由解析成功：",
+            routing["parse_success"]
+        )
+        print(
+            "最终注入记忆：",
+            bool(memory_context)
+        )
+
+        if not routing["parse_success"]:
+            print(
+                "路由原始输出：",
+                routing["raw_output"]
+            )
+            print(
+                "路由错误：",
+                routing.get("error", "")
+            )
+
+        for rank, item in enumerate(
+            retrieved,
+            start=1
+        ):
+            print("=" * 70)
+            print("记忆排名：", rank)
+            print(
+                "相似度：",
+                round(item["score"], 4)
+            )
+            print(
+                "维度：",
+                item.get("dimension", "")
+            )
+            print(
+                "问题：",
+                item.get("question", "")
+            )
+
+    return result
+
+
+
+#system output prompt
+PERSONA_SYSTEM_PROMPT = """
+你正在以自己的身份和朋友聊天。
+
+回答要求：
+1. 保持训练中形成的自然、口语化、简洁聊天风格。
+2. 根据当前对话自然回答。
+3. 如果提供了真实记忆，只使用其中明确出现的事实。
+4. 真实记忆用于帮助回忆，不需要逐字照抄。
+5. 不要创造记忆中不存在的人物、关系、项目或人生经历。
+6. 不要提到RAG、检索、向量库、知识库或访谈资料。
+7. 不要因为参考内容很长就突然输出长文章。
+""".strip()
+
+
+/
+
+
+
