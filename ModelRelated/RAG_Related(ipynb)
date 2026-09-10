@@ -224,3 +224,124 @@ for rank, result in enumerate(results, start=1):
 问题： 五年后你希望别人怎么描述你？AI领域很好的人，还是写专辑玩爵士很有趣的人？
 回答： 我能同时成为两者，但是常常牺牲自己的睡眠。
 ======================================================================
+
+
+                            ————————————————————————————————分支————————————————————————————————
+                            #如果中间换其他模型
+                            
+                            #范例，创建配置文件
+                            
+                            cat > /root/blockdata/persona_v3_inference.yaml <<'EOF'
+                            model_name_or_path: /root/blockdata/Qwen3-30B-A3B-Instruct-2507
+                            adapter_name_or_path: /root/blockdata/saves/qwen3-30b-persona-lora-v3-r32-e3
+                            
+                            finetuning_type: lora
+                            template: qwen3_nothink
+                            enable_thinking: false
+                            
+                            infer_backend: huggingface
+                            trust_remote_code: true
+                            
+                            max_new_tokens: 256
+                            temperature: 0.7
+                            top_p: 0.8
+                            top_k: 20
+                            repetition_penalty: 1.08
+                            EOF
+                            
+                            
+                            ///
+                            
+                            #测试模型本身
+                            
+                            conda activate /root/blockdata/conda_envs/llama
+                            cd /root/LLaMA-Factory
+                            
+                            /
+                            
+                            llamafactory-cli chat \
+                              /root/blockdata/persona_v3_inference.yaml
+                            
+                            /
+                            
+                            
+                            #自己测试
+                            
+                            
+                            /
+                            
+                            #开启llama背景板，保持开启
+                            
+                            cd /root/LLaMA-Factory
+                            
+                            API_PORT=8000 \
+                            llamafactory-cli api \
+                              /root/blockdata/persona_v3_inference.yaml
+                            
+                            /
+                            
+                            #然后开启另一个终端
+                            
+                            #正常
+                            
+                            curl http://127.0.0.1:8000/v1/models
+                            
+                            #返回
+                            
+                            {
+                              "object": "list",
+                              "data": [
+                                {
+                                  "id": "gpt-3.5-turbo"
+                                }
+                              ]
+                            }
+                            `
+                            
+                            /
+                            
+                            #确认现有的RAG（之前配置过
+                            
+                            /root/blockdata/persona_memory.faiss
+                            /root/blockdata/persona_memory.json
+                            /root/blockdata/interview.json
+                            /root/blockdata/modelscope/models/BAAI--bge-small-zh-v1.5/snapshots/master
+                            
+                            
+                            #再打开一个Kernel ipynb
+                            
+                            from sentence_transformers import SentenceTransformer
+                            import faiss
+                            import json
+                            import requests
+                            
+                            EMBEDDING_MODEL_DIR = (
+                                "/root/blockdata/modelscope/models/"
+                                "BAAI--bge-small-zh-v1.5/snapshots/master"
+                            )
+                            
+                            embedding_model = SentenceTransformer(
+                                EMBEDDING_MODEL_DIR,
+                                device="cpu",
+                                local_files_only=True
+                            )
+                            
+                            index = faiss.read_index(
+                                "/root/blockdata/persona_memory.faiss"
+                            )
+                            
+                            with open(
+                                "/root/blockdata/persona_memory.json",
+                                "r",
+                                encoding="utf-8"
+                            ) as f:
+                                memories = json.load(f)
+                            
+                            assert index.ntotal == len(memories)
+                            
+                            print("Embedding 维度：", embedding_model.get_sentence_embedding_dimension())
+                            print("FAISS 向量数：", index.ntotal)
+                            print("记忆数量：", len(memories))
+                            print("RAG 加载成功")
+                            
+                            //#然后加上之前的retrieve()、decide_memory_usage() 和 persona_chat() 函数
