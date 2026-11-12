@@ -1,0 +1,2 @@
+export MATLAB_JAVA=/Library/Java/JavaVirtualMachines/temurin-11.jdk/Contents/Home
+/Applications/MATLAB_R2025b.app/bin/matlab
